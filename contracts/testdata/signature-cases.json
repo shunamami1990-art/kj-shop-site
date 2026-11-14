@@ -1,0 +1,92 @@
+{
+  "version": "0.3.0",
+  "description": "签名标准用例。规则见 common.md 第 3 节。实现必须对每个用例算出相同的 stringToSign 和 signature。",
+  "cases": [
+    {
+      "name": "下单请求",
+      "secret": "test-secret-001",
+      "method": "POST",
+      "path": "/v1/orders",
+      "timestamp": "1760342400000",
+      "nonce": "n0a1b2c3d4e5f6g7",
+      "body": "{\"siteOrderNo\":\"S20261013000001\",\"amount\":\"60.00\",\"currency\":\"CNY\",\"payMethod\":\"wechat\",\"customerAccount\":\"user1001\"}",
+      "direction": "request",
+      "expected": {
+        "stringToSign": "KJ-REQ\nPOST\n/v1/orders\n1760342400000\nn0a1b2c3d4e5f6g7\n{\"siteOrderNo\":\"S20261013000001\",\"amount\":\"60.00\",\"currency\":\"CNY\",\"payMethod\":\"wechat\",\"customerAccount\":\"user1001\"}",
+        "signature": "83a38e3c5bf672be7a9682129d3ee3f1ced6bda3f6a4ef2a137c1be5359c2a76"
+      }
+    },
+    {
+      "name": "请求体含中文（按 UTF-8 字节计算）",
+      "secret": "test-secret-001",
+      "method": "POST",
+      "path": "/v1/orders",
+      "timestamp": "1760342400000",
+      "nonce": "n0a1b2c3d4e5f6g7",
+      "body": "{\"siteOrderNo\":\"S20261013000002\",\"amount\":\"60.00\",\"currency\":\"CNY\",\"payMethod\":\"alipay\",\"customerAccount\":\"user1002\",\"subject\":\"充值 600 积分\"}",
+      "direction": "request",
+      "expected": {
+        "stringToSign": "KJ-REQ\nPOST\n/v1/orders\n1760342400000\nn0a1b2c3d4e5f6g7\n{\"siteOrderNo\":\"S20261013000002\",\"amount\":\"60.00\",\"currency\":\"CNY\",\"payMethod\":\"alipay\",\"customerAccount\":\"user1002\",\"subject\":\"充值 600 积分\"}",
+        "signature": "b4f34bc62888e6c7bb4b041f9f02deae744b8c2a54958c506b86c02cbaca1beb"
+      }
+    },
+    {
+      "name": "同样的内容，空格不同，签名不同（必须对原文签名，不能重新格式化）",
+      "secret": "test-secret-001",
+      "method": "POST",
+      "path": "/v1/orders",
+      "timestamp": "1760342400000",
+      "nonce": "n0a1b2c3d4e5f6g7",
+      "body": "{\"siteOrderNo\": \"S20261013000001\", \"amount\": \"60.00\", \"currency\": \"CNY\", \"payMethod\": \"wechat\", \"customerAccount\": \"user1001\"}",
+      "direction": "request",
+      "expected": {
+        "stringToSign": "KJ-REQ\nPOST\n/v1/orders\n1760342400000\nn0a1b2c3d4e5f6g7\n{\"siteOrderNo\": \"S20261013000001\", \"amount\": \"60.00\", \"currency\": \"CNY\", \"payMethod\": \"wechat\", \"customerAccount\": \"user1001\"}",
+        "signature": "8d12373df8f46c4be4fab7796a84cb2d376af4ce8e39ee84be45cfffed55fc03"
+      }
+    },
+    {
+      "name": "没有请求体的 GET 请求，路径带查询串",
+      "secret": "secret-xyz-002",
+      "method": "GET",
+      "path": "/v1/sites/1001?fields=all",
+      "timestamp": "1760342400123",
+      "nonce": "Zz9Yy8Xx7Ww6Vv5U",
+      "body": "",
+      "direction": "request",
+      "expected": {
+        "stringToSign": "KJ-REQ\nGET\n/v1/sites/1001?fields=all\n1760342400123\nZz9Yy8Xx7Ww6Vv5U\n",
+        "signature": "168c2bc55b9afd4fd5c8b7da46cf3f0873279886bb22ccb37adc4f1e8a93e4d4"
+      }
+    },
+    {
+      "name": "响应签名：方法和路径取请求的值，带上请求的随机串，正文为响应体原文",
+      "direction": "response",
+      "secret": "secret-xyz-002",
+      "method": "POST",
+      "path": "/v1/payments/query",
+      "timestamp": "1760342400456",
+      "nonce": "Rr5Ss6Tt7Uu8Vv9W",
+      "requestNonce": "Qq1Ww2Ee3Rr4Tt5Y",
+      "body": "{\"code\":\"OK\",\"message\":\"\",\"data\":{\"paymentNo\":\"P26101308000000001\",\"status\":\"paid\",\"currency\":\"CNY\"}}",
+      "expected": {
+        "stringToSign": "KJ-RESP\nPOST\n/v1/payments/query\n1760342400456\nRr5Ss6Tt7Uu8Vv9W\nQq1Ww2Ee3Rr4Tt5Y\n{\"code\":\"OK\",\"message\":\"\",\"data\":{\"paymentNo\":\"P26101308000000001\",\"status\":\"paid\",\"currency\":\"CNY\"}}",
+        "signature": "51fc9c2c432a45323061e6e78d295829e4edc54623108f692df509984671a5d6"
+      }
+    },
+    {
+      "name": "同一个响应体回给另一次请求（请求的随机串不同），签名不同：旧响应不能重放给新请求",
+      "direction": "response",
+      "secret": "secret-xyz-002",
+      "method": "POST",
+      "path": "/v1/payments/query",
+      "timestamp": "1760342400456",
+      "nonce": "Rr5Ss6Tt7Uu8Vv9W",
+      "requestNonce": "Aa1Ss2Dd3Ff4Gg5H",
+      "body": "{\"code\":\"OK\",\"message\":\"\",\"data\":{\"paymentNo\":\"P26101308000000001\",\"status\":\"paid\",\"currency\":\"CNY\"}}",
+      "expected": {
+        "stringToSign": "KJ-RESP\nPOST\n/v1/payments/query\n1760342400456\nRr5Ss6Tt7Uu8Vv9W\nAa1Ss2Dd3Ff4Gg5H\n{\"code\":\"OK\",\"message\":\"\",\"data\":{\"paymentNo\":\"P26101308000000001\",\"status\":\"paid\",\"currency\":\"CNY\"}}",
+        "signature": "31576c60cfc5ee5cc2c0abd02612042b740e39a116048133e376d8932c20a3eb"
+      }
+    }
+  ]
+}

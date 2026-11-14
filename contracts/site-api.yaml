@@ -1,0 +1,411 @@
+openapi: 3.1.0
+info:
+  title: C1 站点接口
+  version: 0.15.3
+  description: |
+    站点（子网站、主站、关联产品）与"会计"之间的接口。通用约定见 common.md（签名、金额、响应结构、幂等、重试）。
+
+    ## 订单状态
+
+    | 状态 | 含义 | 可转为 |
+    | --- | --- | --- |
+    | `pending` | 已创建，等待支付 | `paid`、`closed` |
+    | `paid` | 已支付并入账，终态（之后只会发生退款） | — |
+    | `closed` | 超时或被关闭，未入账 | `paid`（超时后到账且该通道账户的策略为"入账"时；或平台人员把这笔到账关联到订单、人工补单时） |
+
+    退款不改变订单状态，订单上的 `refundedAmount` 累计已退金额。
+
+    退款的来源（`Refund.source`）：`site` 站点经本接口申请；`admin` 平台财务或商户管理员在后台发起；`upstream` 通道主动退回或拒付
+    （需求 10.4），直接为 `succeeded`。三种都按下面的通知发给站点；只有 `site` 来源带 `siteRefundNo`。
+
+    后台的测试订单（F14）不通知站点，站点接口查询时返回 `NOT_FOUND`。
+
+    ## 退款状态
+
+    | 状态 | 含义 |
+    | --- | --- |
+    | `processing` | 处理中 |
+    | `succeeded` | 已退款 |
+    | `failed` | 失败，金额已恢复 |
+    | `reviewing` | 订单已过冻结期，退款等待平台财务审批；通过后变为 `processing` 或 `manual`，不通过变为 `failed` |
+    | `manual` | 该通道不支持自动退款，已转平台人工处理，处理完成后变为 `succeeded` 或 `failed` |
+
+    ## 订单来源
+
+    | 来源 | 含义 | 站点是否事先知道这笔订单 |
+    | --- | --- | --- |
+    | `api` | 站点调用本接口下单 | 是 |
+    | `paycode` | 代理、商户或平台客服在后台生成付款码 | 否，只通过通知得知 |
+    | `shop` | 平台客服登记的电商店铺收款 | 否，只通过通知得知 |
+
+    站点收到 `paycode` 和 `shop` 来源的通知时，先查单确认，按查单返回的 `customerAccount` 给客户开通（0.15.3 更正，与第 1 节"先查单再开通"一致）。
+
+    ## 金额
+
+    - `amount` 是订单金额，分账以它为准。
+    - `payableAmount` 是客户应付的精确金额。USDT 靠金额识别订单，应付金额会在订单金额上加一个很小的尾数（如订单 `8.300000`，应付 `8.300417`），
+      客户必须按应付金额精确支付。其他支付方式的应付金额等于订单金额。
+    - `paidAmount` 是客户实付金额。站点按订单金额给客户开通；只有站点设置为"按实付金额成交"时才需要看实付金额。
+
+    ## 数据范围
+
+    站点只能访问自己的订单和退款：按 `orderNo` 或 `siteOrderNo` 查询、退款时，不是本站点的订单一律返回 `NOT_FOUND`，
+    即使它属于同一个商户或同一个子平台。
+
+    ## 店铺码订单（0.14.0）
+
+    平台开通了店铺码通道时，金额等于该通道金额档（如 `100.00`）的订单可能分到店铺码：`payment` 为 `{ type: url, content: { url } }`，地址是本平台付款页（`https://<平台的域名>/pay/...`），站点把客户带到这个地址即可。
+    付款页显示二维码和剩余时间，超时后不再显示码；订单的 `expireAt` 为付款页的截止时间。同一 `siteOrderNo` 重试、`queryOrder` 返回同一个地址。
+    金额不等于任何金额档时不会选到店铺码通道。结果仍以 `order.paid` 通知为准；确认到账由平台人员完成，可能比其他通道慢。字段和错误码都没有变化。
+
+    ## 接入地址与通知地址
+
+    - 站点所属的子平台绑定了自己的域名时，站点可以使用该域名或总平台域名调用本接口；通过别的子平台的域名调用会被拒绝（`UNAUTHORIZED`）。
+    - 通知地址和校验客户账号地址必须是 `https` 的公网地址（common.md 第 9 节），否则下单返回 `INVALID_PARAM`。
+
+    ## 业务错误码
+
+    | code | HTTP | 含义 |
+    | --- | --- | --- |
+    | `SITE_DISABLED` | 403 | 站点已停用或暂停收款；所属商户或子平台已停用时同样返回这个码（0.6.7 起写明） |
+    | `PAY_METHOD_UNAVAILABLE` | 422 | 该支付方式当前不可用 |
+    | `RATE_LIMITED` | 429 | 本站点同时未支付的 USDT 订单数已达上限（资金参数 `usdtMaxPendingPerSite`，默认 20；0.7.0），稍后再试 |
+    | `AMOUNT_OUT_OF_RANGE` | 422 | 金额超出限额，或按规则计算后商户所得为负 |
+    | `ORDER_NOT_PAID` | 422 | 订单未支付，不能退款 |
+    | `REFUND_EXCEEDS` | 422 | 退款金额超过可退金额 |
+servers:
+  - url: https://api.example.com
+security:
+  - kjSignature: []
+paths:
+  /v1/orders:
+    post:
+      operationId: createOrder
+      summary: 下单
+      x-kj-scope: [site]
+      description: 同一站点内 siteOrderNo 唯一；重复提交同样参数返回同一订单，参数不同返回 CONFLICT。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+            examples:
+              wechat:
+                value: { siteOrderNo: "S20261013000001", amount: "60.00", currency: CNY, payMethod: wechat, customerAccount: "user1001", agentCode: "A7K2Q9", notifyUrl: "https://site.example.com/kj/notify", subject: "充值 600 积分" }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+              examples:
+                wechat:
+                  value:
+                    code: OK
+                    message: ""
+                    data: { orderNo: "KJ20261013080000001", siteOrderNo: "S20261013000001", source: api, amount: "60.00", currency: CNY, payMethod: wechat, status: pending, payableAmount: "60.00", paidAmount: null, refundedAmount: "0.00", customerAccount: "user1001", agentCode: "A7K2Q9", payment: { type: url_qrcode, content: { url: "https://pay.example.com/p/abc", qrcode: "weixin://wxpay/bizpayurl?pr=abc" } }, expireAt: "2026-10-13T08:30:00Z", paidAt: null, createdAt: "2026-10-13T08:00:00Z" }
+                usdt:
+                  value:
+                    code: OK
+                    message: ""
+                    data: { orderNo: "KJ20261013080000002", siteOrderNo: "S20261013000002", source: api, amount: "8.300000", currency: USDT, payMethod: usdt, status: pending, payableAmount: "8.300417", paidAmount: null, refundedAmount: "0.000000", customerAccount: "user1002", agentCode: null, payment: { type: usdt, content: { network: TRC20, address: "TXexampleAddress000000000000000000", amount: "8.300417" } }, expireAt: "2026-10-13T08:30:00Z", paidAt: null, createdAt: "2026-10-13T08:00:00Z" }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/orders/query:
+    post:
+      operationId: queryOrder
+      summary: 查询订单
+      x-kj-scope: [site]
+      description: siteOrderNo 与 orderNo 二选一，只能传一个。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              oneOf:
+                - required: [siteOrderNo]
+                - required: [orderNo]
+              properties:
+                siteOrderNo: { type: string, maxLength: 64 }
+                orderNo: { type: string, maxLength: 32 }
+            examples:
+              bySiteOrderNo:
+                value: { siteOrderNo: "S20261013000001" }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+              examples:
+                paid:
+                  value:
+                    code: OK
+                    message: ""
+                    data: { orderNo: "KJ20261013080000001", siteOrderNo: "S20261013000001", source: api, amount: "60.00", currency: CNY, payMethod: wechat, status: paid, payableAmount: "60.00", paidAmount: "60.00", refundedAmount: "0.00", customerAccount: "user1001", agentCode: "A7K2Q9", payment: null, expireAt: "2026-10-13T08:30:00Z", paidAt: "2026-10-13T08:01:12Z", createdAt: "2026-10-13T08:00:00Z" }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/refunds:
+    post:
+      operationId: createRefund
+      summary: 申请退款
+      x-kj-scope: [site]
+      description: 同一站点内 siteRefundNo 唯一。可部分退款，多次退款之和不超过成交金额（通常是订单金额；站点设置为"按实付金额成交"时是实付金额；USDT 的尾数不计入）。siteOrderNo 与 orderNo 二选一，只能传一个。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [siteRefundNo, amount]
+              oneOf:
+                - required: [siteOrderNo]
+                - required: [orderNo]
+              properties:
+                siteRefundNo: { type: string, maxLength: 64 }
+                siteOrderNo: { type: string, maxLength: 64 }
+                orderNo: { type: string, maxLength: 32 }
+                amount: { $ref: '#/components/schemas/Amount' }
+                reason: { type: string, maxLength: 200 }
+            examples:
+              partial:
+                value: { siteRefundNo: "R20261013000001", siteOrderNo: "S20261013000001", amount: "20.00", reason: "客户申请" }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundResponse' }
+              examples:
+                partial:
+                  value: { code: OK, message: "", data: { refundNo: "KR20261013090000001", source: site, siteRefundNo: "R20261013000001", orderNo: "KJ20261013080000001", amount: "20.00", currency: CNY, status: processing, createdAt: "2026-10-13T09:00:00Z", finishedAt: null } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/refunds/query:
+    post:
+      operationId: queryRefund
+      summary: 查询退款
+      x-kj-scope: [site]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              oneOf:
+                - required: [siteRefundNo]
+                - required: [refundNo]
+              properties:
+                siteRefundNo: { type: string, maxLength: 64 }
+                refundNo: { type: string, maxLength: 30 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundResponse' }
+        '404': { $ref: '#/components/responses/Error' }
+webhooks:
+  orderEvent:
+    post:
+      operationId: orderEvent
+      summary: 订单事件通知（core 发给站点）
+      x-kj-scope: [site]
+      description: |
+        发送到站点配置的通知地址（下单时传了 notifyUrl 则用下单时的）。请求带签名，`X-KJ-Key-Id` 为站点编号，
+        用站点当前的接口密钥签名（重置密钥后立即改用新密钥；旧密钥的保留期只对站点发起的调用有效）；站点必须验签。等待回复最多 15 秒。
+        站点处理成功后，响应体必须是小写的 `success`，前后不能有空格或换行；这个响应不需要签名。否则按 common.md 第 7 节重试。
+        站点必须按 eventId 去重。
+
+        **站点收到 `order.paid` 后，必须先调用 `/v1/orders/query` 确认订单为 `paid`、订单金额与自己记录的相符，再给客户开通；
+        不能只凭通知的签名开通。** 原因：站点接口密钥一旦泄露，别人可以伪造通知，但伪造不了 core 对查询的回答
+        （响应签名绑定站点自己发出的请求随机串，common.md 第 3 节）。`paycode`、`shop` 来源的订单同样按 `orderNo` 查询确认。
+
+        | event | 时机 |
+        | --- | --- |
+        | `order.paid` | 订单支付成功并入账 |
+        | `refund.succeeded` | 退款成功（含后台发起和通道主动退回的） |
+        | `refund.failed` | 退款失败 |
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderEvent' }
+            examples:
+              paid:
+                value: { eventId: "EV20261013080112000001", event: order.paid, occurredAt: "2026-10-13T08:01:12Z", order: { orderNo: "KJ20261013080000001", siteOrderNo: "S20261013000001", source: api, amount: "60.00", currency: CNY, payMethod: wechat, status: paid, payableAmount: "60.00", paidAmount: "60.00", refundedAmount: "0.00", customerAccount: "user1001", agentCode: "A7K2Q9", payment: null, expireAt: "2026-10-13T08:30:00Z", paidAt: "2026-10-13T08:01:12Z", createdAt: "2026-10-13T08:00:00Z" }, refund: null }
+      responses:
+        '200':
+          description: 响应体为 success
+          content:
+            text/plain:
+              schema: { type: string, const: success }
+  verifyCustomer:
+    post:
+      operationId: verifyCustomer
+      summary: 校验客户账号（由站点提供，core 调用）
+      x-kj-scope: [site]
+      description: 生成付款码前调用。请求带签名（`X-KJ-Key-Id` 为站点编号），站点必须验签；响应也须按 common.md 签名，core 验签不通过时视为校验失败。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerAccount]
+              properties:
+                customerAccount: { type: string, maxLength: 64 }
+            examples:
+              check:
+                value: { customerAccount: "user1001" }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, data]
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  data:
+                    type: object
+                    required: [exists]
+                    properties:
+                      exists: { type: boolean }
+                      displayName: { type: [string, 'null'], maxLength: 64, description: 便于操作人员核对，可为空 }
+              examples:
+                exists:
+                  value: { code: OK, message: "", data: { exists: true, displayName: "张*" } }
+components:
+  securitySchemes:
+    kjSignature:
+      type: apiKey
+      in: header
+      name: X-KJ-Signature
+      description: 见 common.md 第 3 节；还须带 X-KJ-Key-Id（站点编号）、X-KJ-Timestamp、X-KJ-Nonce。
+  responses:
+    Error:
+      description: 失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            invalid:
+              value: { code: INVALID_PARAM, message: "amount: 小数位数应为 2", data: null }
+  schemas:
+    Amount:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,11})\.[0-9]{2,6}$'
+      description: 字符串小数，小数位数由币种决定（CNY 2 位，USDT 6 位）
+    Currency:
+      type: string
+      enum: [CNY, USDT]
+    PayMethod:
+      type: string
+      enum: [wechat, alipay, usdt]
+    Payment:
+      type: object
+      description: |
+        支付方式。type 决定 content 的结构：
+
+        | type | content |
+        | --- | --- |
+        | `url` | `{ url }` 跳转地址，只能是 `http:` 或 `https:` |
+        | `qrcode` | `{ qrcode, qrcodeImage? }`：`qrcode` 是要编码进二维码的文本；通道只给出二维码图片时，`qrcode` 为空字符串，图片地址放在 `qrcodeImage`（只能是 `https:`），直接显示图片 |
+        | `url_qrcode` | `{ url, qrcode, qrcodeImage? }`，规则同上两行 |
+        | `usdt` | `{ network, address, amount }`，amount 为客户必须精确支付的金额 |
+        | `bank` | `{ cardName, bankName, cardNumber, bankBranch }` |
+        | `app` | `{ data }` 由客户端 SDK 调起 |
+        | `form` | `{ html }` 自动提交的表单 |
+
+        以后可能增加新的 type，站点遇到不认识的 type 应提示客户换一种支付方式，而不是报错。
+      required: [type, content]
+      properties:
+        type: { type: string }
+        content: { type: object, additionalProperties: true }
+    CreateOrderRequest:
+      type: object
+      required: [siteOrderNo, amount, currency, payMethod, customerAccount]
+      properties:
+        siteOrderNo: { type: string, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$' }
+        amount: { $ref: '#/components/schemas/Amount' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        payMethod: { $ref: '#/components/schemas/PayMethod' }
+        customerAccount: { type: string, maxLength: 64, description: 客户在站点的账号 }
+        agentCode: { type: [string, 'null'], maxLength: 32, description: 代理推广码；无效时按无代理成交，不报错 }
+        notifyUrl: { type: [string, 'null'], maxLength: 256, description: 不传则用站点配置的通知地址 }
+        returnUrl: { type: [string, 'null'], maxLength: 256 }
+        subject: { type: [string, 'null'], maxLength: 64 }
+        clientIp: { type: [string, 'null'], maxLength: 45 }
+        extParam: { type: [string, 'null'], maxLength: 512, description: 通知时原样返回 }
+    Order:
+      type: object
+      required: [orderNo, source, amount, currency, payMethod, status, refundedAmount, customerAccount, createdAt]
+      properties:
+        orderNo: { type: string, maxLength: 32 }
+        siteOrderNo: { type: [string, 'null'], description: source 为 paycode、shop 时为空 }
+        source: { type: string, enum: [api, paycode, shop] }
+        amount: { $ref: '#/components/schemas/Amount' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        payMethod: { type: string, enum: [wechat, alipay, usdt, shop] }
+        status: { type: string, enum: [pending, paid, closed] }
+        payableAmount: { type: [string, 'null'], description: 客户应付的精确金额；见"金额"一节 }
+        paidAmount: { type: [string, 'null'], description: 实付金额；与 amount 可能不同 }
+        refundedAmount: { $ref: '#/components/schemas/Amount' }
+        customerAccount: { type: string }
+        agentCode: { type: [string, 'null'] }
+        payment: { oneOf: [ { $ref: '#/components/schemas/Payment' }, { type: 'null' } ], description: 仅 pending 时返回 }
+        extParam: { type: [string, 'null'] }
+        expireAt: { type: string, format: date-time }
+        paidAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    Refund:
+      type: object
+      required: [refundNo, source, orderNo, amount, currency, status, createdAt]
+      properties:
+        refundNo: { type: string, maxLength: 30 }
+        source: { type: string, enum: [site, admin, upstream] }
+        siteRefundNo: { type: [string, 'null'], description: 只有 source 为 site 时有值 }
+        orderNo: { type: string }
+        amount: { $ref: '#/components/schemas/Amount' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        status: { type: string, enum: [reviewing, processing, succeeded, failed, manual] }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+    OrderEvent:
+      type: object
+      required: [eventId, event, occurredAt, order]
+      properties:
+        eventId: { type: string, maxLength: 32 }
+        event: { type: string, enum: [order.paid, refund.succeeded, refund.failed] }
+        occurredAt: { type: string, format: date-time }
+        order: { $ref: '#/components/schemas/Order' }
+        refund: { oneOf: [ { $ref: '#/components/schemas/Refund' }, { type: 'null' } ] }
+    OrderResponse:
+      type: object
+      required: [code, data]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Order' }
+    RefundResponse:
+      type: object
+      required: [code, data]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Refund' }
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        data: { type: 'null' }

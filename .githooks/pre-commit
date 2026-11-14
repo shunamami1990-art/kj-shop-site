@@ -1,0 +1,22 @@
+#!/bin/sh
+# 提交前检查。由架构师分发，项目内不要修改。
+# 1. 契约副本与清单一致；2. 在容器中运行本项目的全部检查（.githooks/run-verify.sh）。
+set -e
+
+node .githooks/check-contracts.mjs
+
+# 只包含契约副本和钩子的提交是架构师的分发，只包含 issues/ 的提交是任务文件和 issue，都不运行项目检查；
+# 否则项目自身检查未通过时（例如刚发了不兼容的契约），契约和修复任务就发不进来。
+others=$(git diff --cached --name-only | grep -v -e '^contracts/' -e '^\.githooks/' -e '^issues/' || true)
+# 架构师分发时在容器里按新契约重新生成的代码（路径清单 .githooks/regen-paths 由分发写入）与契约副本一起提交，
+# 同样只核对契约：只有暂存区里带着 contracts/MANIFEST.json 时才按分发处理，项目自己改生成文件照常运行检查
+if [ -n "$others" ] && [ -f .githooks/regen-paths ] && git diff --cached --name-only | grep -q '^contracts/MANIFEST.json$'; then
+  pattern=$(sed -e 's/[][\.*^$]/\\&/g' -e 's|^|^|' -e 's|$|/|' .githooks/regen-paths | paste -sd '|' -)
+  others=$(printf '%s\n' "$others" | grep -v -E "$pattern" || true)
+fi
+if [ -z "$others" ]; then
+  echo "本次提交只包含契约分发或任务、issue 文件，不运行项目检查"
+  exit 0
+fi
+
+sh .githooks/run-verify.sh

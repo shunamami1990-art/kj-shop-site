@@ -1,0 +1,9 @@
+.project-memory/
+.tmp/
+/.next/
+/dist/
+node_modules/
+*.log
+.env
+*.db
+*.db-*

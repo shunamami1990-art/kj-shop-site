@@ -15,6 +15,29 @@
 | `SHOP_DB_PATH` | 否 | SQLite 数据文件路径，默认 `./data/shop.db` |
 | `PORT` | 否 | 监听端口，默认 `18120` |
 
+## 用保密文件提供密钥
+
+生产环境建议不把 `KJ_SECRET`、`SHOP_SESSION_SECRET` 放进环境变量（容器的环境变量会被写到磁盘上），而是写进一个只读文件，用 `KJ_SECRETS_FILE` 指向它：
+
+```
+# 每行 名称=值，值到行尾，不加引号，不转义
+KJ_SECRET=<接口密钥>
+SHOP_SESSION_SECRET=<随机字符串>
+```
+
+```bash
+docker run --rm -p 18120:18120 -v shop-data:/data \
+  -v /run/shop-secrets.env:/run/shop-secrets.env:ro -e KJ_SECRETS_FILE=/run/shop-secrets.env \
+  -e KJ_BASE_URL=https://api.example.com -e KJ_SITE_ID=<站点编号> shop-site
+```
+
+规则：
+
+- 文件里只能有这两项；`#` 开头的行和空行忽略。
+- 以下情形启动失败，错误信息只写名称，不写值：读不到文件、某行没有 `=`、行尾有 CR（Windows 换行）、名称重复、名称不认识、文件里的变量在环境变量里也设置了。
+- `NODE_ENV=production` 时，这两项只能来自文件（环境变量里出现就拒绝启动），并且文件权限不得宽于 `0400`；开发时两种方式都可以。
+- 日志只记录读到了哪些名称。
+
 ## 本机运行
 
 需要 Node.js 22。

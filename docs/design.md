@@ -47,7 +47,7 @@
 | 目录 | 内容 |
 | --- | --- |
 | `lib/kj-sign.js`、`kj-client.js`、`kj-notify.js`、`kj-payment.js`、`kj-verify-customer.js` | 来自接入文档的 Next.js 示例（2026-11-14 复制，已通过标准用例），按需小改；改动记在本文件第 9 节 |
-| `lib/config.js` | 环境变量：`KJ_BASE_URL`（接口地址，`https://<平台域名>`，不带路径）、`KJ_SITE_ID`、`KJ_SECRET`、`SHOP_DB_PATH`（SQLite 文件路径，默认 `./data/shop.db`）、`SHOP_SESSION_SECRET`（签 cookie）、`PORT`（默认 18120） |
+| `lib/config.js` | 环境变量：`KJ_BASE_URL`（接口地址，`https://<平台域名>`，不带路径）、`KJ_SITE_ID`、`KJ_SECRET`、`SHOP_DB_PATH`（SQLite 文件路径，默认 `./data/shop.db`）、`SHOP_SESSION_SECRET`（签 cookie）、`PORT`（默认 18120）。设置了 `KJ_SECRETS_FILE` 时读取保密文件（`common.md` 第 13 节）：每行 `名称=值`，只允许 `KJ_SECRET`、`SHOP_SESSION_SECRET`，与环境变量合并；读不到、行无 `=`、行尾 CR、名称重复或不认识、与环境变量同名都拒绝启动（错误只写名称或行号）。`NODE_ENV=production` 下这两项只能来自文件，且文件权限不得宽于 `0400`（是否在 tmpfs 上由部署保证，代码不检查）；日志只写读到的名称。由 `lib/site.js` 的 `getSite()` 在第一次使用时读一次 |
 | `lib/db.js` | SQLite（`node:sqlite`，Node 22 内置，不加原生依赖）：建表（表结构见 `docs/database.md`）、本地订单、退款、开通记录、事件去重、随机串（同时实现 `NonceStore`，替代示例里的内存版）、客户 |
 | `lib/products.js` | 固定商品表（编号、名称、价格字符串、币种）和各币种可用的支付方式 |
 | `lib/session.js` | 登录 cookie：HMAC 签名"账号名 + 过期时间（Unix 秒，7 天）"，读取时校验签名和过期；`Secure` 判断 |
@@ -114,12 +114,12 @@ stateDiagram-v2
 - `npm`、`npx` 只在容器里运行；端口 18120（`docs/architecture/ports-and-names.md`）。
 - 金额一律字符串，比较用字符串相等；不做浮点运算。
 - 页面文字中文、简洁；不写平台的内部信息。
-- 保密：`KJ_SECRET`、`SHOP_SESSION_SECRET` 只从环境变量读，不写日志，不进仓库。
+- 保密：`KJ_SECRET`、`SHOP_SESSION_SECRET` 开发下可以从环境变量读，也可以从 `KJ_SECRETS_FILE` 指向的保密文件读；`production` 下只能从文件读（第 4 节）。不写日志（只记名称），不进仓库。
 
 ## 8. 部署（由 ops 做，本项目提供）
 
 - `Dockerfile`（第 4 节）、监听 `PORT`、`/healthz` 返回 200。
-- 环境变量清单（第 4 节 `lib/config.js`），`SHOP_DB_PATH=/data/shop.db`。
+- 环境变量清单（第 4 节 `lib/config.js`），`SHOP_DB_PATH=/data/shop.db`；正式环境另设 `KJ_SECRETS_FILE`，两项保密内容放在该文件里。
 - 正式环境：ops 把它作为独立服务挂在反向代理后面、单独域名；通知地址和校验客户账号地址在平台后台配置。
 
 ## 9. 允许的预留与变更记录

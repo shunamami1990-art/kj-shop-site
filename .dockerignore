@@ -1,0 +1,14 @@
+.git
+.githooks
+.claude
+.project-memory
+.tmp
+.next
+node_modules
+data
+contracts
+docs
+issues
+test
+*.db
+*.db-*

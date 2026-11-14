@@ -33,7 +33,8 @@
 | `/pay/<siteOrderNo>` | 付款页：按 `payment.type` 展示（`qrcode` 用本地生成二维码图片；`url`/`url_qrcode` 给跳转按钮和二维码；`usdt` 显示网络、地址、应付金额并提示精确转账；`qrcodeImage` 直接显示；其他 `type` 提示换支付方式）；显示订单金额与应付金额；每 3 秒调用本站 `/api/orders/<siteOrderNo>` 刷新状态，`paid` 且已开通时显示"已开通" |
 | `/orders` | 我的订单：当前账号的订单（站点订单号、商品、金额、币种、支付方式、状态、是否已开通、时间），每行"查看"和"申请退款"（已支付且可退金额大于 0 时） |
 | `/orders/<siteOrderNo>` | 订单详情：本地记录 + 调用 `queryOrder` 的最新结果（`orderNo`、`status`、`paidAmount`、`refundedAmount`、`expireAt`）、退款记录、"申请退款"（金额、原因） |
-| `/api/pay` | POST `{ productId, payMethod }`，金额和币种只看服务端商品表（来自接入文档 Next.js 示例的"去支付"） |
+| `/api/login` | POST 表单 `account`，登录页提交用；账号合格则记入 `customers`、写 cookie 并 303 跳回 `/`，不合格跳回 `/login?error=1` |
+| `/api/pay` | POST `{ productId, payMethod }`，金额和币种只看服务端商品表（来自接入文档 Next.js 示例的"去支付"）；成功回 `{ code: "OK", data: { siteOrderNo } }`；未登录 401；商品不存在 404；支付方式与币种不符 400 |
 | `/api/orders/<siteOrderNo>` | GET，本站订单状态（本地 + 查单）；只返回当前账号自己的订单 |
 | `/api/refund` | POST `{ siteOrderNo, amount, reason }`，生成 `siteRefundNo`，调用 `createRefund` |
 | `/api/kj/notify` | 平台通知地址（第 2 节） |
@@ -46,35 +47,69 @@
 | --- | --- |
 | `lib/kj-sign.js`、`kj-client.js`、`kj-notify.js`、`kj-payment.js`、`kj-verify-customer.js` | 来自接入文档的 Next.js 示例（2026-11-14 复制，已通过标准用例），按需小改；改动记在本文件第 9 节 |
 | `lib/config.js` | 环境变量：`KJ_BASE_URL`（接口地址，`https://<平台域名>`，不带路径）、`KJ_SITE_ID`、`KJ_SECRET`、`SHOP_DB_PATH`（SQLite 文件路径，默认 `./data/shop.db`）、`SHOP_SESSION_SECRET`（签 cookie）、`PORT`（默认 18120） |
-| `lib/db.js` | SQLite（`node:sqlite`，Node 22 内置，不加原生依赖）：建表、本地订单、退款、开通记录、事件去重、随机串、客户 |
-| `lib/products.js` | 固定商品表（编号、名称、价格字符串、币种） |
+| `lib/db.js` | SQLite（`node:sqlite`，Node 22 内置，不加原生依赖）：建表（表结构见 `docs/database.md`）、本地订单、退款、开通记录、事件去重、随机串（同时实现 `NonceStore`，替代示例里的内存版）、客户 |
+| `lib/products.js` | 固定商品表（编号、名称、价格字符串、币种）和各币种可用的支付方式 |
 | `lib/session.js` | 登录 cookie（HMAC 签名的账号名） |
-| `app/` | Next.js App Router 页面与路由（第 3 节） |
-| `test/` | `node --test`：签名标准用例（必需测试 `signature-cases`）、通知处理（查单不是 `paid`/金额不符/重复 `eventId`/并发只开通一次）、`/api/pay` 定价不信任浏览器、校验客户账号验签与回复签名、付款页对 `payment` 的处理；用独立实现的假平台（不复用 `lib/kj-sign.js`） |
+| `lib/orders.js` | 下单、订单状态、退款、退款通知、通知用的存储适配（`SiteStore`）；页面和接口只调用这里，数据库和平台客户端作为参数传入，便于测试 |
+| `lib/site.js` | 第一次使用时读配置并组装数据库和平台客户端（用 `globalThis` 保证进程内只有一份）；接口共用的登录账号、错误回复、请求体解析 |
+| `app/` | Next.js App Router 页面与路由（第 3 节）；页面是 `.jsx`，路由是 `route.js`（只用标准 `Request`/`Response`，测试里直接调用）；`buy-form.jsx`、`pay-status.jsx`、`refund-form.jsx` 是需要浏览器交互的客户端组件 |
+| `test/` | `node --test`：签名标准用例（必需测试 `signature-cases`）、通知处理（验签失败/随机串重复/查单不是 `paid`/金额不符/重复 `eventId`/并发只开通一次/`paycode` 来源/退款通知）、`/api/pay` 定价不信任浏览器与错误映射、订单状态、退款、校验客户账号验签与回复签名、付款页对 `payment` 的处理；用独立实现的假平台 `test/fake-platform.mjs`（不复用 `lib/kj-sign.js`） |
 | `Dockerfile` | 多阶段：`node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8` 构建（`next build`），`node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d` 运行（`next start`，`USER node`，`HEALTHCHECK` 请求 `/healthz`）；数据目录 `/data` 由编排挂卷 |
 
-## 5. 表结构（SQLite，`lib/db.js` 建表）
+## 5. 表结构
 
-| 表 | 列 | 说明 |
-| --- | --- | --- |
-| `customers` | `account`（主键）、`created_at` | 登录过的账号 |
-| `orders` | `site_order_no`（主键）、`account`、`product_id`、`amount`、`currency`、`pay_method`、`order_no`、`status`（本地：`created`、`paid`、`closed`）、`payment_json`、`created_at`、`updated_at` | 本地订单；`amount`、`currency` 下单前写入，通知核对用 |
-| `fulfillments` | `order_no`（主键）、`site_order_no`、`account`、`amount`、`currency`、`created_at` | 开通记录；唯一键插入 + 同一事务写业务，保证只开通一次（接入文档《开通的原子写法》） |
-| `events` | `event_id`（主键）、`received_at` | 通知去重，开通事务提交后写入 |
-| `nonces` | `nonce`（主键）、`seen_at` | 平台请求的随机串，10 分钟内重复拒绝；定期清理 |
-| `refunds` | `site_refund_no`（主键）、`site_order_no`、`refund_no`、`amount`、`status`、`reason`、`created_at`、`updated_at` | 本站申请的退款；`refund.*` 通知更新状态 |
+表结构、ER 图和各列说明见 `docs/database.md`（`lib/db.js` 建表）。要点：`fulfillments` 以平台订单号为主键，插入冲突即视为已开通，与更新 `orders.status` 在同一个事务里（接入文档《开通的原子写法》）；`events` 在开通事务提交后才写入。
 
 ## 6. 关键流程
 
+通知与开通（跨服务时序）：
+
+```mermaid
+sequenceDiagram
+    participant P as 平台
+    participant S as /api/kj/notify
+    participant D as SQLite
+    P->>S: POST order.paid（签名）
+    S->>S: 验签（站点编号、时间戳、随机串、签名）
+    S->>D: events 有 eventId？
+    alt 已处理
+        S-->>P: 200 success
+    else 未处理
+        S->>P: POST /v1/orders/query { orderNo }
+        P-->>S: 订单（回复签名绑定本次随机串）
+        S->>S: status 为 paid、金额与币种与本地相同
+        S->>D: 事务：插 fulfillments、orders.status = paid
+        S->>D: 写 events
+        S-->>P: 200 success
+    end
+```
+
+本地订单状态：
+
+```mermaid
+stateDiagram-v2
+    [*] --> created: /api/pay 写入
+    created --> paid: 通知确认后开通
+    created --> closed: 下单失败，或查单为 closed
+    closed --> paid: 超时后到账，通知确认后开通
+```
+
+错误处理：验签失败回 401；查单失败（网络错误、回复验签失败、平台 5xx）回 500，不记 `eventId`，等平台重试；查单不是 `paid`、金额或币种不符、本地没有该 `siteOrderNo` 回 409，不开通；`order.paid` 以外不认识的事件记日志并回 `success`。
+
+步骤：
+
 1. 购买：登录态取账号 → `/api/pay` 按商品表定价 → 写 `orders`（`created`） → `createOrder`（`siteOrderNo` 为 `S` + 时间 + 随机）→ 保存 `orderNo`、`payment` → 跳付款页。`createOrder` 网络错误或回复验签失败回 502，平台 `INTERNAL_ERROR`/`UNAVAILABLE` 回 503，业务错误码原样显示给用户（`PAY_METHOD_UNAVAILABLE`、`AMOUNT_OUT_OF_RANGE` 等有中文说明）。
 2. 通知：验签（站点编号、5 分钟、随机串 10 分钟、签名）→ `eventId` 已有则直接 `success` → `order.paid`：`queryOrder` 确认 `paid`、`amount`/`currency` 与本地相同（`source` 为 `paycode`/`shop` 时本地无记录，按查单返回的 `customerAccount`、`amount` 建一条订单并开通）→ 事务里插 `fulfillments` + 更新 `orders.status` → 记 `eventId` → `success`；不通过时记日志、不回 `success`。`refund.succeeded`/`refund.failed` 更新 `refunds`（没有本地记录的退款也记一条，`source` 可能是 `admin`、`upstream`）。
-3. 付款页刷新：`/api/orders/<no>` 先看本地，本地不是终态时调用 `queryOrder`；结果未知（5xx、网络错误、验签失败）时返回上次本地状态并标 `stale: true`，不当作未支付。
+3. 付款页刷新：`/api/orders/<no>` 先看本地，本地不是终态时调用 `queryOrder`；结果未知（5xx、网络错误、验签失败）时返回上次本地状态并标 `stale: true`，不当作未支付。是否"已开通"只看本地记录（`fulfilled`），开通只在通知处理里发生；查单看到 `paid` 但还没收到通知时页面显示"正在开通"。
+4. 退款：`/api/refund` 只接受当前账号自己、已开通的订单；金额必须是该币种固定小数位的字符串；先写 `refunds`（`created`）再调用 `createRefund`（用平台订单号），成功后记 `refundNo` 和状态，平台拒绝记 `failed`，网络错误回 502（记录保留为 `created`）；可退金额由平台判断（`REFUND_EXCEEDS` 等有中文说明），订单详情页用查单的 `refundedAmount` 计算可退金额只用于显示。
 
 ## 7. 技术约定
 
 - Node 22、Next.js（App Router，JavaScript，不用 TypeScript，便于加盟方照抄）、React。依赖只有 `next`、`react`、`react-dom` 和生成二维码的 `qrcode`（纯 JS）；新增依赖先在这里写明理由。
 - 数据库 `node:sqlite`（内置；运行时会打印实验性提示，可接受；换成 `better-sqlite3` 需要原生构建，不用）。
-- 测试用 `node --test`，不引入测试框架。
+- 测试用 `node --test test/*.test.mjs`（Node 22 的 `node --test` 不接受目录参数），不引入测试框架。
+- 没有 TypeScript：`lint` 对 `lib/`、`app/`、`test/` 下的全部 `.js`、`.mjs` 文件运行 `node --check`（语法检查；`.jsx` 页面由 `next build` 编译检查），`typecheck` 同 `lint`。
+- 构建时 `npm audit` 报告 `next` 依赖的 `postcss` 有已知漏洞（只在构建期处理 CSS，运行时不使用）；修复需要升级到 Next.js 16，本站暂不处理，升级时一并解决。
 - `npm`、`npx` 只在容器里运行；端口 18120（`docs/architecture/ports-and-names.md`）。
 - 金额一律字符串，比较用字符串相等；不做浮点运算。
 - 页面文字中文、简洁；不写平台的内部信息。
@@ -90,3 +125,9 @@
 
 - 允许的预留：无。
 - 变更记录：2026-11-14 初稿（架构师）；2026-11-14 第 3 节支付方式按契约 `PayMethod` 改为三种（项目会话 T-001 首次运行时指出）。
+- T-001（行走的骨架）对来自接入文档示例的 `lib/` 文件的改动：
+  - `kj-payment.js`：本站只提供微信、支付宝和 USDT，`KNOWN_PAYMENT_TYPES` 去掉 `bank`、`app`、`form`（遇到按"不认识"提示换支付方式，不渲染平台给的 HTML）；`usdt` 要求 `network`、`address`、`amount` 都是非空字符串，只返回这三个字段。
+  - `kj-sign.js` 的 `MemoryNonceStore` 不再使用，随机串由 `lib/db.js` 的 `nonces` 表保存（进程重启后仍有效）；示例文件里的类原样保留。
+  - 其余 4 个文件未改动。
+- T-001 对设计初稿的其他调整：新增 `/api/login`（登录页表单提交）、`lib/orders.js`、`lib/site.js`；`orders` 表增加 `payable_amount` 列、`product_id` 可空（`paycode`/`shop` 来源的订单没有商品），表结构移到 `docs/database.md`；测试命令改为 `node --test test/*.test.mjs`。
+- 已知限制：登录没有密码；SQLite 数据文件只能由一个进程使用，不能多实例共用；`paycode`/`shop` 来源的订单没有站点订单号，本地用平台订单号代替（订单详情用平台订单号查单）；退款只查本地记录和通知，没有主动调用 `queryRefund` 刷新状态。

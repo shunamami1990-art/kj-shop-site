@@ -1,0 +1,20 @@
+{
+  "name": "shop-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "find lib app test -name '*.js' -o -name '*.mjs' | xargs -n 1 node --check",
+    "typecheck": "npm run lint",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.29",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

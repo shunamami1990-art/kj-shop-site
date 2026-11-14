@@ -44,7 +44,7 @@ erDiagram
 | `pay_method` | TEXT | 非空 | `wechat`、`alipay`、`usdt`（`shop` 来源为 `shop`） |
 | `payable_amount` | TEXT | 可空 | 平台返回的应付金额（USDT 带尾数） |
 | `order_no` | TEXT | 唯一，可空 | 平台订单号；`createOrder` 成功后写入 |
-| `status` | TEXT | 非空 | 本地状态：`created`、`paid`（已开通）、`closed` |
+| `status` | TEXT | 非空 | 本地状态：`created`（含下单结果未知、还没有 `order_no` 的订单）、`paid`（已开通）、`closed`（平台明确拒绝下单或查单为关闭；之后仍可能因通知开通） |
 | `payment_json` | TEXT | 可空 | 下单返回的 `payment`（JSON 原文） |
 | `created_at`、`updated_at` | TEXT | 非空 | RFC 3339 UTC 时间 |
 
@@ -52,7 +52,7 @@ erDiagram
 
 ## fulfillments
 
-开通记录。以 `order_no` 为主键插入，插入冲突即视为已开通；与更新 `orders.status` 在同一个事务里。
+开通记录。开通靠主键幂等：以 `order_no` 为主键插入，插入冲突即视为已开通；与更新 `orders.status` 在同一个事务里（`eventId` 去重不在这个事务里）。
 
 | 列 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -90,7 +90,7 @@ erDiagram
 | `site_order_no` | TEXT | 非空 | 对应的本地订单（找不到本地订单时为平台订单号） |
 | `refund_no` | TEXT | 唯一，可空 | 平台退款号；申请成功后写入 |
 | `amount` | TEXT | 非空 | 退款金额 |
-| `status` | TEXT | 非空 | 本地 `created`（已记录、尚无平台回复）、`failed`（平台拒绝）；其余为平台状态 `reviewing`、`processing`、`succeeded`、`failed`、`manual` |
+| `status` | TEXT | 非空 | 本地 `created`（已记录、尚无平台回复，含结果未知）、`failed`（平台明确拒绝）；其余为平台状态 `reviewing`、`processing`、`succeeded`、`failed`、`manual` |
 | `reason` | TEXT | 可空 | 退款原因 |
 | `created_at`、`updated_at` | TEXT | 非空 | RFC 3339 UTC 时间 |
 

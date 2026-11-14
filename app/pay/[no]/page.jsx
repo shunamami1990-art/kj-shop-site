@@ -4,6 +4,7 @@ import { describePayment } from '../../../lib/kj-payment.js';
 import { getSite } from '../../../lib/site.js';
 import { requireAccount } from '../../require-account.js';
 import PayStatus from './pay-status.jsx';
+import RetryOrder from './retry-order.jsx';
 
 /** 二维码在服务端生成图片，不把付款内容交给第三方 */
 async function qrImage(text) {
@@ -66,7 +67,8 @@ export default async function Pay({ params }) {
         订单金额：{order.amount} {order.currency}
         {order.payable_amount && order.payable_amount !== order.amount ? `，应付金额：${order.payable_amount} ${order.currency}` : ''}
       </p>
-      {order.status === 'created' ? <PaymentView payment={payment} productId={order.product_id} /> : null}
+      {order.status === 'created' && !order.order_no ? <RetryOrder siteOrderNo={order.site_order_no} /> : null}
+      {order.status === 'created' && order.order_no ? <PaymentView payment={payment} productId={order.product_id} /> : null}
       <PayStatus siteOrderNo={order.site_order_no} initialStatus={order.status} />
       <p>
         <a href="/orders">我的订单</a>

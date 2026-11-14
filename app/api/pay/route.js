@@ -12,6 +12,8 @@ export async function POST(request) {
 
   const { db, client } = getSite();
   const result = await createPayOrder({ db, client }, { account, productId: body.productId, payMethod: body.payMethod });
-  if (!result.ok) return jsonError(result.status, result.code, result.message);
+  if (!result.ok) {
+    return jsonError(result.status, result.code, result.message, result.siteOrderNo ? { siteOrderNo: result.siteOrderNo } : null);
+  }
   return Response.json({ code: 'OK', message: '', data: { siteOrderNo: result.siteOrderNo } });
 }

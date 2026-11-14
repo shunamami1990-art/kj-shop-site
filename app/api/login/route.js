@@ -1,4 +1,4 @@
-import { normalizeAccount, sessionCookie } from '../../../lib/session.js';
+import { isSecureRequest, normalizeAccount, sessionCookie } from '../../../lib/session.js';
 import { getSite } from '../../../lib/site.js';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +13,6 @@ export async function POST(request) {
   db.addCustomer(account);
   return new Response(null, {
     status: 303,
-    headers: { Location: '/', 'Set-Cookie': sessionCookie(account, config.sessionSecret) },
+    headers: { Location: '/', 'Set-Cookie': sessionCookie(account, config.sessionSecret, isSecureRequest(request.headers)) },
   });
 }

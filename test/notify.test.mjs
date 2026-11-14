@@ -13,6 +13,8 @@ after(() => fake.close());
 beforeEach(() => {
   fake.down = false;
   fake.badSignature = false;
+  fake.dropReply = false;
+  fake.rewriteQuery = null;
 });
 
 // 统计 fulfill 返回 true（第一次开通）的次数
@@ -209,6 +211,102 @@ test('refund.succeeded / refund.failed：更新本站申请的退款，补记后
 
   res = await send(refundEvent('refund.failed', { ...base, refundNo: 'KR-mine-1', source: 'site', siteRefundNo: 'R-mine-1', amount: '10.00', status: 'failed' }));
   assert.equal(db.getRefund('R-mine-1').status, 'failed');
+});
+
+test('下单超时（结果未知）后通知到达：本地订单保留 created，通知能开通', async () => {
+  const cookie = await loginCookie('user-timeout');
+  fake.dropReply = true;
+  const res = await pay(jsonRequest('/api/pay', { productId: 'p-200', payMethod: 'wechat' }, cookie));
+  fake.dropReply = false;
+  assert.equal(res.status, 502);
+  const { siteOrderNo } = (await res.json()).data;
+  assert.equal(db.getOrder(siteOrderNo).status, 'created');
+  assert.equal(db.getOrder(siteOrderNo).order_no, null);
+
+  const remote = [...fake.orders.values()].find((o) => o.siteOrderNo === siteOrderNo);
+  fake.setPaid(remote.orderNo);
+  assert.equal((await send(paidEvent(remote))).text, 'success');
+  const local = db.getOrder(siteOrderNo);
+  assert.equal(local.status, 'paid');
+  assert.equal(local.order_no, remote.orderNo);
+  assert.equal(grantsOf(remote.orderNo), 1);
+});
+
+test('closed 的订单收到 paid 通知：超时后到账也能开通', async () => {
+  const { local, remote } = await placeOrder('user-closed');
+  db.setOrderStatus(local.site_order_no, 'closed');
+  fake.setPaid(remote.orderNo);
+  assert.equal((await send(paidEvent(remote))).text, 'success');
+  assert.equal(db.getOrder(local.site_order_no).status, 'paid');
+  assert.equal(grantsOf(remote.orderNo), 1);
+});
+
+test('api 来源：查单账号与本地订单账号不一致，不开通', async () => {
+  const { local, remote } = await placeOrder('user-owner');
+  fake.setPaid(remote.orderNo);
+  remote.customerAccount = 'user-other';
+  const res = await send(paidEvent(remote));
+  assert.equal(res.status, 409);
+  assert.notEqual(res.text, 'success');
+  assert.equal(grantsOf(remote.orderNo), 0);
+  assert.equal(db.getOrder(local.site_order_no).status, 'created');
+});
+
+test('shop 来源：按查单返回的账号和金额建单并开通', async () => {
+  const order = fake.addOrder({ siteOrderNo: null, source: 'shop', amount: '88.00', currency: 'CNY', payMethod: 'shop', customerAccount: 'shop-customer' });
+  fake.setPaid(order.orderNo);
+  const res = await send(paidEvent({ ...order, customerAccount: 'someone-else', amount: '1.00' }));
+  assert.equal(res.text, 'success');
+  const local = db.getOrderByOrderNo(order.orderNo);
+  assert.equal(local.account, 'shop-customer');
+  assert.equal(local.amount, '88.00');
+  assert.equal(local.status, 'paid');
+  assert.equal(grantsOf(order.orderNo), 1);
+});
+
+test('来源缺失或不认识：不开通，不回 success', async () => {
+  for (const source of [undefined, null, 'something-new']) {
+    const order = fake.addOrder({ siteOrderNo: null, source, amount: '30.00', currency: 'CNY', payMethod: 'wechat', customerAccount: 'x' });
+    fake.setPaid(order.orderNo);
+    const res = await send(paidEvent(order));
+    assert.equal(res.status, 409, String(source));
+    assert.notEqual(res.text, 'success');
+    assert.equal(db.isFulfilled(order.orderNo), false);
+    assert.equal(db.getOrderByOrderNo(order.orderNo), null);
+  }
+});
+
+test('查单返回的 orderNo 与通知不一致：不开通', async () => {
+  const { remote } = await placeOrder('user-mismatch');
+  fake.setPaid(remote.orderNo);
+  fake.rewriteQuery = (order) => ({ ...order, orderNo: 'KJ-OTHER' });
+  const res = await send(paidEvent(remote));
+  assert.equal(res.status, 409);
+  assert.equal(grantsOf(remote.orderNo), 0);
+  assert.equal(grantsOf('KJ-OTHER'), 0);
+});
+
+test('paycode 来源：查单没有 customerAccount 时不开通', async () => {
+  for (const customerAccount of [undefined, null, '']) {
+    const order = fake.addOrder({ siteOrderNo: null, source: 'paycode', amount: '30.00', currency: 'CNY', payMethod: 'wechat', customerAccount });
+    fake.setPaid(order.orderNo);
+    const res = await send(paidEvent(order));
+    assert.equal(res.status, 409, String(customerAccount));
+    assert.equal(db.isFulfilled(order.orderNo), false);
+    assert.equal(db.getOrderByOrderNo(order.orderNo), null);
+  }
+});
+
+test('重复的退款通知（不同 eventId）幂等：只有一条退款记录', async () => {
+  const { local, remote } = await placeOrder('user-refund-dup');
+  fake.setPaid(remote.orderNo);
+  await send(paidEvent(remote));
+  const refund = { orderNo: remote.orderNo, refundNo: 'KR-dup-1', source: 'admin', siteRefundNo: null, amount: '5.00', currency: 'CNY', status: 'succeeded', createdAt: '2026-10-13T09:00:00Z', finishedAt: '2026-10-13T09:05:00Z' };
+  const event = () => ({ eventId: eventId(), event: 'refund.succeeded', occurredAt: '2026-10-13T09:05:00Z', order: remote, refund });
+  assert.equal((await send(event())).text, 'success');
+  assert.equal((await send(event())).text, 'success');
+  assert.equal(db.listRefunds(local.site_order_no).length, 1);
+  assert.equal(db.getRefundByNo('KR-dup-1').status, 'succeeded');
 });
 
 test('不认识的事件：记下并回复 success', async () => {

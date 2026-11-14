@@ -22,6 +22,11 @@ export default function BuyForm({ productId, methods }) {
         window.location.href = `/pay/${body.data.siteOrderNo}`;
         return;
       }
+      if (body.data?.siteOrderNo) {
+        // 结果未知：订单已记录，到付款页查看，不要重复下单
+        window.location.href = `/pay/${body.data.siteOrderNo}`;
+        return;
+      }
       setError(body.message || body.code);
     } catch {
       setError('网络错误，请稍后再试');

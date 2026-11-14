@@ -8,6 +8,7 @@ export default async function OrderDetail({ params }) {
   const account = await requireAccount();
   const { no } = await params;
   const { db, client } = getSite();
+  // 注意：页面的 GET 请求会触发查单；查到平台订单已关闭且本地仍是 created 时，getOrderStatus 会把本地订单回写为 closed
   const info = await getOrderStatus({ db, client }, { account, siteOrderNo: no, force: true });
   if (!info) notFound();
   const order = db.getOrder(no);
@@ -34,7 +35,13 @@ export default async function OrderDetail({ params }) {
           </tbody>
         </table>
       ) : (
-        <p className="muted">{info.stale ? '暂时无法获取平台上的最新状态。' : '订单尚未提交到平台。'}</p>
+        <p className="muted">
+          {info.queryError
+            ? '平台未找到该订单/配置有误，请联系站点。'
+            : info.stale
+              ? '暂时无法获取平台上的最新状态。'
+              : '订单尚未提交到平台。'}
+        </p>
       )}
 
       <h2>退款记录</h2>

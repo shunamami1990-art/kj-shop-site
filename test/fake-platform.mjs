@@ -54,6 +54,14 @@ export async function startFakePlatform() {
     payment: { type: 'url_qrcode', content: { url: 'https://pay.example.com/p/abc', qrcode: 'weixin://wxpay/bizpayurl?pr=abc' } },
     /** 设置后下单直接返回该错误 */
     createOrderError: null,
+    /** 设置后查单直接返回该错误 */
+    queryError: null,
+    /** 设置后退款直接返回该错误 */
+    refundError: null,
+    /** 设置后查单返回的订单经过该函数改写（模拟平台回复与通知不一致） */
+    rewriteQuery: null,
+    /** 设置后平台照常处理请求，但不回复就断开连接（模拟超时：结果未知） */
+    dropReply: false,
     /** 设置后所有回复的签名都是错的 */
     badSignature: false,
     /** 设置后所有请求直接返回 500（回复不签名） */
@@ -106,10 +114,13 @@ export async function startFakePlatform() {
       return ok(order);
     }
     if (path === '/v1/orders/query') {
+      if (fake.queryError) return fail(fake.queryError.status, fake.queryError.code);
       const order = [...fake.orders.values()].find((o) => (payload.orderNo ? o.orderNo === payload.orderNo : o.siteOrderNo === payload.siteOrderNo));
-      return order ? ok(order) : fail(404, 'NOT_FOUND');
+      if (!order) return fail(404, 'NOT_FOUND');
+      return ok(fake.rewriteQuery ? fake.rewriteQuery(order) : order);
     }
     if (path === '/v1/refunds') {
+      if (fake.refundError) return fail(fake.refundError.status, fake.refundError.code);
       const order = [...fake.orders.values()].find((o) => (payload.orderNo ? o.orderNo === payload.orderNo : o.siteOrderNo === payload.siteOrderNo));
       if (!order) return fail(404, 'NOT_FOUND');
       if (order.status !== 'paid') return fail(422, 'ORDER_NOT_PAID');
@@ -154,6 +165,10 @@ export async function startFakePlatform() {
       const payload = JSON.parse(body);
       fake.calls.push({ path, payload });
       const out = handle(path, payload);
+      if (fake.dropReply) {
+        req.socket.destroy();
+        return;
+      }
       const text = JSON.stringify(out.body);
       const respTs = String(Date.now());
       const respNonce = randomNonce();

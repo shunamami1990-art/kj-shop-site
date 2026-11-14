@@ -29,7 +29,7 @@
 | --- | --- |
 | `/` | 商品列表：固定商品表（服务端常量，至少 3 个 CNY、1 个 USDT），每个商品一个"购买"按钮；未登录时先跳转登录 |
 | `/login` | 输入账号名（即客户账号 `customerAccount`，1～64 个字符）即登录，写 HttpOnly cookie；无密码（示例用） |
-| `/buy/<商品编号>` | 选支付方式（`wechat`、`alipay`、`usdt`、`shop`），提交后服务端按商品表定价、记本地订单、调用 `createOrder`，跳到付款页 |
+| `/buy/<商品编号>` | 选支付方式（契约 `PayMethod`：CNY 商品 `wechat`、`alipay`；USDT 商品 `usdt`。没有 `shop`：平台可能把 `alipay` 订单分配给店铺码，站点不感知），提交后服务端按商品表定价、记本地订单、调用 `createOrder`，跳到付款页 |
 | `/pay/<siteOrderNo>` | 付款页：按 `payment.type` 展示（`qrcode` 用本地生成二维码图片；`url`/`url_qrcode` 给跳转按钮和二维码；`usdt` 显示网络、地址、应付金额并提示精确转账；`qrcodeImage` 直接显示；其他 `type` 提示换支付方式）；显示订单金额与应付金额；每 3 秒调用本站 `/api/orders/<siteOrderNo>` 刷新状态，`paid` 且已开通时显示"已开通" |
 | `/orders` | 我的订单：当前账号的订单（站点订单号、商品、金额、币种、支付方式、状态、是否已开通、时间），每行"查看"和"申请退款"（已支付且可退金额大于 0 时） |
 | `/orders/<siteOrderNo>` | 订单详情：本地记录 + 调用 `queryOrder` 的最新结果（`orderNo`、`status`、`paidAmount`、`refundedAmount`、`expireAt`）、退款记录、"申请退款"（金额、原因） |
@@ -89,4 +89,4 @@
 ## 9. 允许的预留与变更记录
 
 - 允许的预留：无。
-- 变更记录：2026-11-14 初稿（架构师）。
+- 变更记录：2026-11-14 初稿（架构师）；2026-11-14 第 3 节支付方式按契约 `PayMethod` 改为三种（项目会话 T-001 首次运行时指出）。

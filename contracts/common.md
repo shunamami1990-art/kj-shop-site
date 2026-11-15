@@ -1,6 +1,6 @@
 # 通用约定（所有契约共用）
 
-版本：0.16.0
+版本：0.16.1
 
 ## 1. 编码与格式
 
@@ -290,7 +290,7 @@ core 调用站点（通知、校验客户账号）时，`X-KJ-Key-Id` 为站点�
   - `keepJsonPaths`：`["<表>.<列>:<JSON 路径>"]`，`jsonb` 里必须原样保留的值（如分账明细的金额、参与方类型）；JSON 路径用 `$.a.b`、数组元素用 `[*]`。值为 JSON 数字或第 2 节金额格式的字符串时，ops 不做"不同取值个数"与字符格式的核对（模式扫描照常，0.12.3）。
   - `maskNumeric`：`["<表>.<列>"]`，要脱敏的整数列（块号、日志序号、Telegram 接收人编号等）。
   - `timeNumeric`：`["<表>.<列>"]`，存时间的整数列；`units`（顶层字段，0.12.1）：`{"<表>.<列>": "seconds" | "steps30"}`，`timeNumeric` 的每一列都要有。
-  - `ids`：`[{"column": "<表>.<列>" 或 "<表>.<列>:<JSON 路径>", "entity": "<实体类型>" 或 null, "typeBy": "<表>.<列>" 或 null, "typeMap": {"<typeBy 的值>": "<实体类型>"}}]`；`jsonb` 数组里的编号按同一元素的另一字段区分时，`typeBy` 写成同一列、同一元素的路径（如 `"orders.split_lines:$[*].partyType"`，0.12.1）；实体类型取 `platform`、`account`、`merchant`、`site`、`agent`、`order`、`payment`、`refund`、`withdrawal`、`channelAccount`、`fundAccount`、`settlement`、`other:<名称>`；`root` 与契约里固定的系统操作人（`ops-cli`、`system`）一律原样保留，不改写、不登记为原值（0.12.4）。`ids` 的列可以是 `text[]`（逐元素映射，0.12.2）；列里不符合该实体编号格式的值（如 `ops-cli`）按普通文本脱敏，不报错（0.12.2）。
+  - `ids`：`[{"column": "<表>.<列>" 或 "<表>.<列>:<JSON 路径>", "entity": "<实体类型>" 或 null, "typeBy": "<表>.<列>" 或 null, "typeMap": {"<typeBy 的值>": "<实体类型>"}}]`；`jsonb` 数组里的编号按同一元素的另一字段区分时，`typeBy` 写成同一列、同一元素的路径（如 `"orders.split_lines:$[*].partyType"`，0.12.1）；实体类型取 `platform`、`account`、`merchant`、`site`、`agent`、`order`、`payment`、`refund`、`withdrawal`、`channelAccount`、`fundAccount`、`settlement`、`party`（0.16.1：按第 12 节的编号格式在 `merchant`、`agent` 中判定，映射与对应实体共用；两种格式都不符合的值按普通文本脱敏。用于同一行没有类型列的提供方编号，如 core 的 `shopcode_rotations.last_provider_id`、`orders.fee_provider_id`，以及 `typeMap` 里 `prepaid` → `party`）、`other:<名称>`；`root` 与契约里固定的系统操作人（`ops-cli`、`system`）一律原样保留，不改写、不登记为原值（0.12.4）。`ids` 的列可以是 `text[]`（逐元素映射，0.12.2）；列里不符合该实体编号格式的值（如 `ops-cli`）按普通文本脱敏，不报错（0.12.2）。
   - `encrypted`：`["<表>.<列>"]`，本服务的全部加密列。
   - `recomputed`（0.12.1）：`["<表>.<列>"]`，由 `mask-secrets` 重写的列：按新的假值重算的派生列（后 4 位、打码、查重摘要、与密文对应的地址等），以及有格式、唯一约束或须与其他列保持对应的标识（如登录名、平台代号、域名，0.12.2）。ops 的通用改写跳过这些列（同 `encrypted`），不做 `keepText` 的取值核对，模式扫描不扫这些列，原值摘要扫描照常（原值不得出现）。生成列（`GENERATED`）不写，列进 `keepText` 时同样不做取值核对。
   - `scope`：`{"<表>": {"kind": "platform", "column": "<列>"} | {"kind": "via", "column": "<列>", "references": "<表>.<列>" 或 "<服务>:<表>.<列>"} | {"kind": "global", "reason": "<一句话>"} | {"kind": "none"}}`，每张表一项。`none` 表示不导出数据（表结构照样导出，导入后为空，0.12.1）。引用别的服务的库时写 `<服务>:<表>.<列>`（如 channel-usdt 按 `core:channel_accounts.id` 筛，ops 先从该服务的库读出授权范围内的编号，0.12.2）。凭据与防重放类表必须为 `none`；汇总了全部子平台的总平台行用 `rowFilters` 排除。

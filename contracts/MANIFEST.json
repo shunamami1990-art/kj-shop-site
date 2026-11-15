@@ -1,8 +1,8 @@
 {
-  "version": "0.16.0",
-  "rootCommit": "8e300b9",
+  "version": "0.16.1",
+  "rootCommit": "3766cbd",
   "files": {
-    "common.md": "19bb39265d0c91dfa4056b874d6098a513fb150bc78110b38efbb65622e90ae7",
+    "common.md": "dd49874ae38c97a035d3500be73f9887ace7b56bbd3ecf7c07861e947970a1e2",
     "site-api.yaml": "a37887e941f9af598eb18ad7db44f657141533d5d040f2d5f6d84ea9caf0ef21",
     "testdata/signature-cases.json": "9ffd2e5f6b64a6fda27faf7756c70f6f224a53e81c6c20d2a41f80a788a8a544",
     "reference/dev-standards.md": "b4d683343eff50bd879b49f105a92bd580f3473f559c125ca5a33673d9ad8753"

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 const TEXT = {
   created: '等待付款……',
   paid: '已开通',
-  closed: '订单已关闭（超时或未支付），请重新下单',
+  closed: '订单已关闭（超时或未支付）',
 };
 
 const POLL_MS = 3000;
@@ -33,7 +33,7 @@ export default function PayStatus({ siteOrderNo, initialStatus }) {
   return (
     <p>
       <strong>{paidNotFulfilled ? '已收到付款，正在开通……' : TEXT[state.fulfilled ? 'paid' : state.status]}</strong>
-      {state.status === 'closed' && !state.fulfilled ? <span className="muted">（若已付款，开通后会自动显示）</span> : null}
+      {state.status === 'closed' && !state.fulfilled ? <span className="muted">（若已付款请勿重复下单，开通后自动显示；未付款请重新下单）</span> : null}
       {state.queryError ? <span className="error">（平台未找到该订单/配置有误，请联系站点）</span> : null}
       {state.stale ? <span className="muted">（状态暂时无法更新，稍后自动重试）</span> : null}
     </p>

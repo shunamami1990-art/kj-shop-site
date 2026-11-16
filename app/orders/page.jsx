@@ -1,12 +1,12 @@
+import { LOCAL_STATUS_TEXT, PAY_METHOD_TEXT, localRefundable, textOf } from '../../lib/orders.js';
 import { findProduct } from '../../lib/products.js';
 import { getSite } from '../../lib/site.js';
 import { requireAccount } from '../require-account.js';
 
-const STATUS_TEXT = { created: '待付款', paid: '已支付', closed: '已关闭' };
-
 export default async function Orders() {
   const account = await requireAccount();
-  const orders = getSite().db.listOrders(account);
+  const { db } = getSite();
+  const orders = db.listOrders(account);
   return (
     <main>
       <h1>我的订单</h1>
@@ -32,13 +32,14 @@ export default async function Orders() {
               <td>
                 {o.amount} {o.currency}
               </td>
-              <td>{o.pay_method}</td>
-              <td>{STATUS_TEXT[o.status] ?? o.status}</td>
+              <td>{textOf(PAY_METHOD_TEXT, o.pay_method)}</td>
+              <td>{textOf(LOCAL_STATUS_TEXT, o.status)}</td>
               <td>{o.status === 'paid' ? '是' : '否'}</td>
               <td>{o.created_at}</td>
               <td>
                 <a href={`/orders/${o.site_order_no}`}>查看</a>
-                {o.status === 'paid' ? (
+                {/* 按本地退款记录判断，已退完的订单不再显示入口；精确的可退金额以订单详情和平台为准 */}
+                {o.status === 'paid' && Number(localRefundable(o.amount, db.listRefunds(o.site_order_no)).replace('.', '')) > 0 ? (
                   <>
                     {' '}
                     <a href={`/orders/${o.site_order_no}#refund`}>申请退款</a>

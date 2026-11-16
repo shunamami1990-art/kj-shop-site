@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 
+// 这些错误码的 message 由本站生成（校验提示、业务码的中文说明），可以显示；其他错误码一律显示通用文案，不显示平台原文
+const SITE_TEXT_CODES = ['INVALID_PARAM', 'ORDER_NOT_PAID', 'REFUND_EXCEEDS', 'RATE_LIMITED', 'SITE_DISABLED', 'PLATFORM_ERROR', 'INTERNAL_ERROR', 'UNAVAILABLE'];
+
 export default function RefundForm({ siteOrderNo, refundable }) {
   const [amount, setAmount] = useState(refundable);
   const [reason, setReason] = useState('');
@@ -25,7 +28,7 @@ export default function RefundForm({ siteOrderNo, refundable }) {
         return;
       }
       setFailed(true);
-      setMessage(body.message || body.code);
+      setMessage(SITE_TEXT_CODES.includes(body.code) && body.message ? body.message : '退款失败，请稍后再试');
     } catch {
       setFailed(true);
       setMessage('网络错误，请稍后查看订单的退款记录');

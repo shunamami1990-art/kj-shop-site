@@ -1,5 +1,14 @@
 import { notFound } from 'next/navigation';
-import { getOrderStatus, notSubmittedText, refundableAmount } from '../../../lib/orders.js';
+import {
+  LOCAL_STATUS_TEXT,
+  PAY_METHOD_TEXT,
+  REFUND_STATUS_TEXT,
+  REMOTE_STATUS_TEXT,
+  getOrderStatus,
+  notSubmittedText,
+  refundableAmount,
+  textOf,
+} from '../../../lib/orders.js';
 import { getSite } from '../../../lib/site.js';
 import { requireAccount } from '../../require-account.js';
 import RefundForm from './refund-form.jsx';
@@ -23,13 +32,13 @@ export default async function OrderDetail({ params }) {
     <main>
       <h1>订单 {order.site_order_no}</h1>
       <p>
-        金额：{order.amount} {order.currency}，支付方式：{order.pay_method}，本地状态：{order.status}，已开通：{info.fulfilled ? '是' : '否'}
+        金额：{order.amount} {order.currency}，支付方式：{textOf(PAY_METHOD_TEXT, order.pay_method)}，状态：{textOf(LOCAL_STATUS_TEXT, order.status)}，已开通：{info.fulfilled ? '是' : '否'}
       </p>
       {remote ? (
         <table>
           <tbody>
             <tr><th>平台订单号</th><td>{remote.orderNo}</td></tr>
-            <tr><th>平台状态</th><td>{remote.status}</td></tr>
+            <tr><th>平台状态</th><td>{textOf(REMOTE_STATUS_TEXT, remote.status)}</td></tr>
             <tr><th>实付金额</th><td>{remote.paidAmount ?? '-'}</td></tr>
             <tr><th>已退金额</th><td>{remote.refundedAmount}</td></tr>
             <tr><th>到期时间</th><td>{remote.expireAt ?? '-'}</td></tr>
@@ -51,7 +60,7 @@ export default async function OrderDetail({ params }) {
       <ul>
         {refunds.map((r) => (
           <li key={r.site_refund_no}>
-            {r.site_refund_no}：{r.amount}，{r.status}
+            {r.site_refund_no}：{r.amount}，{textOf(REFUND_STATUS_TEXT, r.status)}
             {r.reason ? `，${r.reason}` : ''}
           </li>
         ))}

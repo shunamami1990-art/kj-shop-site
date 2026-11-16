@@ -136,7 +136,7 @@ core 调用站点（通知、校验客户账号）时，`X-KJ-Key-Id` 为站点�
 
 带令牌的接口（`x-kj-scope` 含 `root`、`platform`、`merchant`、`agent`）另有两个标注（0.6.0 起），缺少时全量验证不通过。集成测试据此自动生成隔离用例：
 
-- `x-kj-roles`：写在接口操作上，列出可以调用的角色（C7 第 2 节的标识），不在其中的角色调用返回 `FORBIDDEN` 或 `NOT_FOUND`。超级管理员不列出（按 C7 第 4 节和各契约的说明）。读接口列出 `root_admin`、`root_finance` 表示可以查看；写接口列出它们表示该角色可以调用（总平台自己的操作、本人的操作，或契约写明的例外，如撤销等待生效操作、账本检查），集成测试的"总平台账号带 `X-KJ-Platform` 写入应被拒绝"检查跳过这些接口；没有列出总平台角色的写接口，总平台账号带 `X-KJ-Platform` 调用时只有超级管理员可以写。契约另行写明的有条件放开（如 C4 的客服可见范围）不列出。
+- `x-kj-roles`：写在接口操作上，列出可以调用的角色（C7 第 2 节的标识），不在其中的角色调用返回 `FORBIDDEN` 或 `NOT_FOUND`。超级管理员不列出（按 C7 第 4 节和各契约的说明）；`x-kj-roles: []` 表示只有超级管理员可以调用，此时 `x-kj-scope` 为 `[root]`（0.17.0）。读接口列出 `root_admin`、`root_finance` 表示可以查看；写接口列出它们表示该角色可以调用（总平台自己的操作、本人的操作，或契约写明的例外，如撤销等待生效操作、账本检查），集成测试的"总平台账号带 `X-KJ-Platform` 写入应被拒绝"检查跳过这些接口；没有列出总平台角色的写接口，总平台账号带 `X-KJ-Platform` 调用时只有超级管理员可以写。契约另行写明的有条件放开（如 C4 的客服可见范围）不列出。
 - `x-kj-ref`：写在路径参数、查询参数和请求体字段上，标出这个值引用哪类对象。名字以 `Id`、`Ids`、`No` 结尾的（`requestNo` 除外）都必须标注。取值：`platform`、`merchant`、`site`、`agent`、`user`、`channel_account`、`fund_account`、`payee_account`、`order`、`receipt`、`refund`、`notification`、`manual_payment`、`fund_transfer`、`withdrawal`、`adjustment`、`system_fee_settlement`、`system_fee_refund`、`delayed_operation`、`shop_order`、`alert_record`、`channel_settlement`、`recon_diff`（后两个 0.8.0）、`shop`、`shop_code`、`allocation`、`prepaid_topup`（0.14.0，C4 店铺码通道与预付款）；`party` 表示类型由同一请求里的 `ownerType`、`partyType`、`providerType`（0.16.0）、`ptype` 或 `groupBy`（0.8.0）决定，没有这类字段时由编号的格式决定（第 12 节）；`ownerType` 为 `prepaid`（0.14.0，C4 提供方预付账户）时 `ownerId` 为提供方编号，类型按第 12 节的编号格式决定（`M…` 商户、`AG…` 代理，0.16.0；此前按 `merchant` 处理）；`none` 表示不是对已有对象的引用（如调用方新生成的编号、外部系统的单号）。
 
 ## 9. 向外部地址发起的调用

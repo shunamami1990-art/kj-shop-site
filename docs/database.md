@@ -46,6 +46,8 @@ erDiagram
 | `order_no` | TEXT | 唯一，可空 | 平台订单号；`createOrder` 成功后写入 |
 | `status` | TEXT | 非空 | 本地状态：`created`（含下单结果未知、还没有 `order_no` 的订单）、`paid`（已开通）、`closed`（平台明确拒绝下单或查单为关闭；之后仍可能因通知开通） |
 | `payment_json` | TEXT | 可空 | 下单返回的 `payment`（JSON 原文） |
+| `last_error_code` | TEXT | 可空 | 平台明确拒绝下单时的错误码；再次提交成功时清空；结果未知不写。旧数据库启动时用 `ALTER TABLE` 补列 |
+| `last_error_text` | TEXT | 可空 | 与错误码对应的说明（`errorText` 的结果） |
 | `created_at`、`updated_at` | TEXT | 非空 | RFC 3339 UTC 时间 |
 
 索引：`orders_account_created (account, created_at)`，用于“我的订单”。

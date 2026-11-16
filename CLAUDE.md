@@ -77,6 +77,7 @@
 | 提交 | `git add ...`，然后 `git commit -m "..."` |
 | 查看 | `git status`、`git diff`、`git log`、`git show`、`ls` |
 | 核对契约副本 | `node .githooks/check-contracts.mjs` |
+| 原地修改本文件夹里的文件 | `sed -i ... <本文件夹内的文件>`（路径检查核对；宿主机上执行代码的 python3 等仍不放行） |
 
 被禁止、一定会失败的命令：查看或停止本机其他容器的命令（`docker ps`、`docker inspect`、`docker stop`、`docker rm`、各种 `prune` 等）；使用不以 `kj-shop-site-` 开头的容器、编排项目、数据卷名；挂载本文件夹以外的路径；`git push --force`、`git reset --hard`、`git clean`、`git rebase`、`git commit --amend`、`git commit --no-verify`、`git config`、`git -c`（只允许指定提交者身份）、`--output`；任何递归删除（`rm -r`）；在宿主机上运行 `npm`、`npx`、`node -e`；`curl` 访问本机以外的地址或读写本地文件；修改 `contracts/`、`.githooks/`、`.claude/`。这些由每次工具调用前的路径检查拦截。需要清理本项目的容器时，用 `docker compose -p kj-shop-site-... down`。
 

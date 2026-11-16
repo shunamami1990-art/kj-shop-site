@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getOrderStatus, refundableAmount } from '../../../lib/orders.js';
+import { getOrderStatus, notSubmittedText, refundableAmount } from '../../../lib/orders.js';
 import { getSite } from '../../../lib/site.js';
 import { requireAccount } from '../../require-account.js';
 import RefundForm from './refund-form.jsx';
@@ -16,6 +16,7 @@ export default async function OrderDetail({ params }) {
   const remote = info.remote;
   // 平台查单失败时不知道已退金额，仍显示退款表单，由平台判断
   const refundable = remote ? refundableAmount(order.amount, remote.refundedAmount) : order.amount;
+  const rejected = !order.order_no && Boolean(order.last_error_code);
   const canRefund = info.fulfilled && Number(refundable.replace('.', '')) > 0;
 
   return (
@@ -35,12 +36,13 @@ export default async function OrderDetail({ params }) {
           </tbody>
         </table>
       ) : (
-        <p className="muted">
+        <p className={rejected ? 'error' : 'muted'}>
           {info.queryError
             ? '平台未找到该订单/配置有误，请联系站点。'
             : info.stale
               ? '暂时无法获取平台上的最新状态。'
-              : '订单尚未提交到平台。'}
+              : notSubmittedText(order)}
+          {rejected && order.product_id ? <> <a href={`/buy/${order.product_id}`}>重新下单</a></> : null}
         </p>
       )}
 

@@ -2,7 +2,7 @@
 
 - 用途：本项目的职责、页面与接口、模块划分、关键流程、技术约定、测试清单。代码必须与本文件一致（开发规范第 1 节）。
 - 状态：初稿（架构师 2026-11-14 写；项目会话接手后由项目会话维护）
-- 依据：契约 v0.15.3（`contracts/site-api.yaml`、`contracts/common.md` 第 1～9、17 节、`contracts/testdata/signature-cases.json`；每次动手前与 `contracts/MANIFEST.json` 核对，落后时先按开发规范第 7 节更新）
+- 依据：契约 v0.16.1（`contracts/site-api.yaml`、`contracts/common.md` 第 1～9、17 节、`contracts/testdata/signature-cases.json`；每次动手前与 `contracts/MANIFEST.json` 核对，落后时先按开发规范第 7 节更新）
 
 ## 1. 职责与边界
 
@@ -54,7 +54,7 @@
 | `lib/orders.js` | 下单、重试下单、订单状态、退款、退款通知、通知用的存储适配（`SiteStore`）；页面和接口只调用这里，数据库和平台客户端作为参数传入，便于测试 |
 | `lib/site.js` | 第一次使用时读配置并组装数据库和平台客户端（用 `globalThis` 保证进程内只有一份）；接口共用的登录账号、错误回复、请求体解析 |
 | `app/` | Next.js App Router 页面与路由（第 3 节）；页面是 `.jsx`，路由是 `route.js`（只用标准 `Request`/`Response`，测试里直接调用）；`buy-form.jsx`、`pay-status.jsx`、`refund-form.jsx` 是需要浏览器交互的客户端组件 |
-| `test/` | `node --test`：签名标准用例（必需测试 `signature-cases`）、通知处理（验签失败/随机串重复/查单不是 `paid`/金额不符/账号不符/`orderNo` 不一致/来源缺失或不认识/重复 `eventId`/并发只开通一次/`api`、`paycode`、`shop` 来源/`closed` 订单收到通知/下单超时后通知/退款通知及其重复）、`/api/pay` 定价不信任浏览器与错误映射、结果未知与重试下单、订单状态（`stale`、`queryError`）、退款（金额 0、结果未知、并发）、会话过期与 `Secure`、校验客户账号验签与回复签名、付款页对 `payment` 的处理；用独立实现的假平台 `test/fake-platform.mjs`（不复用 `lib/kj-sign.js`） |
+| `test/` | `node --test`：签名标准用例（必需测试 `signature-cases`）、通知处理（验签失败/随机串重复/查单不是 `paid`/金额不符/账号不符/`orderNo` 不一致/来源缺失或不认识/重复 `eventId`/并发只开通一次/`api`、`paycode`、`shop` 来源/`closed` 订单收到通知/下单超时后通知/退款通知及其重复）、`/api/pay` 定价不信任浏览器与错误映射、结果未知与重试下单、订单状态（`stale`、`queryError`）、退款（金额 0、结果未知、并发）、会话过期与 `Secure`、校验客户账号验签与回复签名、付款页对 `payment` 的处理、订单页显示平台拒绝的错误码（`test/order-rejection.test.mjs`：拒绝后记录、结果未知不写、再次成功清空、旧库补列）；用独立实现的假平台 `test/fake-platform.mjs`（不复用 `lib/kj-sign.js`） |
 | `Dockerfile` | 多阶段：`node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8` 构建（`next build`），`node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d` 运行（`next start`，`USER node`，`HEALTHCHECK` 请求 `/healthz`）；数据目录 `/data` 由编排挂卷 |
 
 ## 5. 表结构
@@ -99,7 +99,7 @@ stateDiagram-v2
 
 步骤：
 
-1. 购买：登录态取账号 → `/api/pay` 按商品表定价 → 写 `orders`（`created`） → `createOrder`（`siteOrderNo` 为 `S` + 时间 + 随机）→ 保存 `orderNo`、`payment` → 跳付款页。`createOrder` 结果未知（网络错误、回复验签失败回 502；`INTERNAL_ERROR`/`UNAVAILABLE`、5xx 回 503）时本地订单保留 `created`（平台可能已建单，不置 `closed`），提示"结果未知，请稍后在我的订单里查看，不要重复下单"，付款页提供"重试下单"（同一个 `siteOrderNo` 再调 `createOrder`，幂等），之后的通知仍能开通；只有平台明确的业务错误（4xx 业务码）才置 `closed`，错误码原样显示给用户（`PAY_METHOD_UNAVAILABLE`、`AMOUNT_OUT_OF_RANGE` 等有中文说明）。
+1. 购买：登录态取账号 → `/api/pay` 按商品表定价 → 写 `orders`（`created`） → `createOrder`（`siteOrderNo` 为 `S` + 时间 + 随机）→ 保存 `orderNo`、`payment` → 跳付款页。`createOrder` 结果未知（网络错误、回复验签失败回 502；`INTERNAL_ERROR`/`UNAVAILABLE`、5xx 回 503）时本地订单保留 `created`（平台可能已建单，不置 `closed`），提示"结果未知，请稍后在我的订单里查看，不要重复下单"，付款页提供"重试下单"（同一个 `siteOrderNo` 再调 `createOrder`，幂等），之后的通知仍能开通；只有平台明确的业务错误（4xx 业务码）才置 `closed`，错误码原样显示给用户（`PAY_METHOD_UNAVAILABLE`、`AMOUNT_OUT_OF_RANGE` 等有中文说明）。明确拒绝时还把错误码和说明（`errorText` 的结果，不是平台原始 `message`）写入 `orders.last_error_code`、`orders.last_error_text`，再次提交成功时清空；结果未知、回复验签失败不写。订单详情页对没有平台订单号且有 `last_error_code` 的订单显示"平台拒绝了这笔订单：<说明>（错误码 <code>）"，订单有商品时附"重新下单"链接（`/buy/<商品编号>`）；没有错误码时仍显示"订单尚未提交到平台。"。
 2. 通知：验签（站点编号、5 分钟、随机串 10 分钟、签名）→ `eventId` 已有则直接 `success` → `order.paid`：`queryOrder` 确认 `orderNo` 一致、`paid`；`source` 为 `api` 时 `amount`/`currency`/`customerAccount` 与本地订单相同（账号不一致回 409 不开通）；`paycode`/`shop` 时本地无记录，按查单返回的 `customerAccount`、`amount` 建一条订单并开通（没有 `customerAccount` 不开通）；`source` 缺失或不认识不开通 → 事务里插 `fulfillments` + 更新 `orders.status`（本地订单是 `created` 或 `closed` 都能开通）→ 提交后记 `eventId` → `success`；不通过时记日志、不回 `success`。`refund.succeeded`/`refund.failed` 以验签为准，不再查单，更新 `refunds`（没有本地记录的退款也记一条，`source` 可能是 `admin`、`upstream`，站点退款号写 `X-<refundNo>`），`eventId` 去重保证幂等（同一 `refundNo` 的重复通知只更新同一条记录）。
 3. 付款页刷新：`/api/orders/<no>` 先看本地，本地不是终态时调用 `queryOrder`；结果未知（5xx、网络错误、验签失败）时返回上次本地状态并标 `stale: true`，不当作未支付；查单返回明确的业务错误码（`NOT_FOUND`、`INVALID_PARAM`、`UNAUTHORIZED` 等）时不标 `stale`，返回 `queryError`，页面提示"平台未找到该订单/配置有误，请联系站点"。订单详情页（GET）也会触发查单，查到平台订单已关闭且本地仍是 `created` 时回写 `closed`。是否"已开通"只看本地记录（`fulfilled`），开通只在通知处理里发生；查单看到 `paid` 但还没收到通知时页面显示"正在开通"。
 4. 退款：`/api/refund` 只接受当前账号自己、已开通的订单；金额必须是该币种固定小数位的字符串且大于 0；先写 `refunds`（`created`）再调用 `createRefund`（用平台订单号），成功后记 `refundNo` 和状态，平台明确拒绝（4xx 业务码）记 `failed`，结果未知（网络错误、验签失败、5xx、`INTERNAL_ERROR`/`UNAVAILABLE`）回 503、记录保留为 `created`（平台可能已受理，以后续通知为准）；可退金额由平台判断（`REFUND_EXCEEDS` 等有中文说明），订单详情页用查单的 `refundedAmount` 计算可退金额只用于显示。

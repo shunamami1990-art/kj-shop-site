@@ -70,7 +70,7 @@ export default async function Pay({ params }) {
       {order.status === 'created' && !order.order_no ? <RetryOrder siteOrderNo={order.site_order_no} /> : null}
       {order.status === 'created' && order.order_no ? <PaymentView payment={payment} productId={order.product_id} /> : null}
       {order.status === 'created' && order.order_no ? <p className="muted">付款后由平台核对，可能需要几分钟。</p> : null}
-      <PayStatussiteOrderNo={order.site_order_no} initialStatus={order.status} />
+      <PayStatus siteOrderNo={order.site_order_no} initialStatus={order.status} />
       <p>
         <a href="/orders">我的订单</a>
       </p>

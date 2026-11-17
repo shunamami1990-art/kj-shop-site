@@ -8,6 +8,12 @@ if [ -f test/signature-cases.test.mjs ]; then
   node --test test/signature-cases.test.mjs
 fi
 
+# lint 只检查 .js/.mjs；.jsx 页面靠 next build 编译来发现语法错误，跑完删除 .next/
+if [ -d app ]; then
+  NEXT_TELEMETRY_DISABLED=1 npm run build
+  rm -rf .next
+fi
+
 # 面向外部的内容不得出现"子平台""总平台"（common.md 第 17 节）
 if [ -d app ] && grep -rnE "子平台|总平台" app lib README.md 2>/dev/null; then
   echo "app/、lib/、README.md 不得含\"子平台\"\"总平台\"" >&2

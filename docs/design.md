@@ -2,7 +2,7 @@
 
 - 用途：本项目的职责、页面与接口、模块划分、关键流程、技术约定、测试清单。代码必须与本文件一致（开发规范第 1 节）。
 - 状态：初稿（架构师 2026-11-14 写；项目会话接手后由项目会话维护）
-- 依据：契约 v0.17.3（`contracts/site-api.yaml`、`contracts/common.md` 第 1～9、17 节、`contracts/testdata/signature-cases.json`；每次动手前与 `contracts/MANIFEST.json` 核对，落后时先按开发规范第 7 节更新）
+- 依据：契约 v0.17.5（`contracts/site-api.yaml`、`contracts/common.md` 第 1～9、17 节、`contracts/testdata/signature-cases.json`；每次动手前与 `contracts/MANIFEST.json` 核对，落后时先按开发规范第 7 节更新）
 
 ## 1. 职责与边界
 
@@ -109,7 +109,7 @@ stateDiagram-v2
 - Node 22、Next.js 16（App Router，JavaScript，不用 TypeScript，便于加盟方照抄）、React。依赖只有 `next`、`react`、`react-dom` 和生成二维码的 `qrcode`（纯 JS）；新增依赖先在这里写明理由。
 - 数据库 `node:sqlite`（内置；运行时会打印实验性提示，可接受；换成 `better-sqlite3` 需要原生构建，不用）。
 - 测试用 `node --test test/*.test.mjs`（Node 22 的 `node --test` 不接受目录参数），不引入测试框架。
-- 没有 TypeScript：`lint` 对 `lib/`、`app/`、`test/` 下的全部 `.js`、`.mjs` 文件运行 `node --check`（语法检查；`.jsx` 页面由 `next build` 编译检查），`typecheck` 同 `lint`。
+- 没有 TypeScript：`lint` 对 `lib/`、`app/`、`test/` 下的全部 `.js`、`.mjs` 文件运行 `node --check`（语法检查；`.jsx` 页面由根目录 `verify.sh` 里的 `npm run build` 编译检查，跑完删除 `.next/`），`typecheck` 同 `lint`。
 - 升级到 Next.js 16（T-002）：Next.js 15 依赖的 `postcss` 有 high 级别漏洞（GHSA-6g55-p6wh-862q 等），发布打包的审计会拒绝；16 修复后 `npm audit --audit-level=high` 为 0。Next.js 16 默认用 Turbopack 构建，原来 `next.config.mjs` 里为 `node:sqlite` 写的 webpack 配置已删除（Turbopack 把 Node 内置模块当作外部模块）；路由和页面的 `params` 本来就按 Promise 读取，无需改动。
 - `npm`、`npx` 只在容器里运行；端口 18120（`docs/architecture/ports-and-names.md`）。
 - 金额一律字符串，比较用字符串相等；不做浮点运算。

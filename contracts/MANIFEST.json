@@ -1,6 +1,6 @@
 {
-  "version": "0.18.2",
-  "rootCommit": "d4e8294",
+  "version": "0.18.3",
+  "rootCommit": "b207be6",
   "files": {
     "common.md": "df6b268512fb99cd3db7fda5ee6c10415e2db2fc6535ede9227d2708bec5a4fb",
     "site-api.yaml": "ed269b7a47ecf7125681d0fe690685c0769b7ee4f935a13513f7df16822acc86",
